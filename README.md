@@ -20,51 +20,36 @@ Tis project moves beyond standard CRUD operations to demonstrate **resource effi
 
 ---
 
-## 🏗 System Architecture
-
-The system utilizes an **Asynchronous Producer-Consumer** pattern to smooth out "bursty" traffic before writing to disk.
-
-```mermaid
-graph LR
-    A[Market Data Feed / k6] -->|HTTP POST| B(Spring Boot Controller)
-    B -->|Non-Blocking| C{Virtual Threads}
-    C -->|Push| D[ConcurrentLinkedQueue]
-    D -->|Buffer| E[Consumer Thread]
-    E -->|JDBC Batch Insert| F[(PostgreSQL)]
-```
-
-### Design Decisions
-1.  **Virtual Threads (Project Loom):** Utilized Spring Boot's virtual thread executor to handle high-concurrency HTTP connections with minimal memory overhead compared to platform threads.
-2.  **Asynchronous Buffering:** The API returns `202 ACCEPTED` immediately upon validation, pushing data to a thread-safe `ConcurrentLinkedQueue`. This removes Database I/O from the request blocking path.
-3.  **JDBC Batching:** Replaced standard JPA/Hibernate `save()` with `JdbcTemplate` batch updates (batch size: 1000) to reduce Network Round Trip Time (RTT) by orders of magnitude.
-4.  **Graceful Shutdown:** Implemented `@PreDestroy` hooks to drain the in-memory buffer to the database upon `SIGTERM`, ensuring data integrity during deployments.
-
----
-
 ## 📊 Performance Benchmarks
 
 *Hardware Context: Standard Dev Laptop testing against Docker Resource Limits.*
 
 | Scenario | Infrastructure | Throughput (RPS) | P95 Latency | Analysis |
 | :--- | :--- | :--- | :--- | :--- |
-| **Baseline** | Local JVM (Unlimited CPU) | **~15,600 RPS** | 6.25ms | Raw application overhead is minimal. |
-| **Bottleneck** | Docker (0.5 vCPU) | ~414 RPS | 297ms | **CPU Starvation.** High Context Switching observed. |
-| **Sweet Spot** | Docker (1.0 vCPU) | **~1,250 RPS** | 96ms | **2.5x gain** by doubling CPU. Efficient vertical scaling. |
-| **Resiliency** | 3-Node Cluster | ~300 RPS | 185ms | Load Balancer failover verified; Latency stable during node death. |
+| **Baseline** | Local JVM (12 CPU) | **~15,600 RPS** | 6.25ms | Raw application overhead is minimal. |
+| **Starved** | Docker (0.5 vCPU) | ~463 RPS | 293ms | **CPU Starvation.** High Context Switching causes massive latency spikes (300ms+). |
+| **Production** | Docker (1.0 vCPU) | **~1,585 RPS** | **89ms** | **The Sweet Spot.** By adding 0.5 CPU, performance increased **4x**. Efficient utilization. |
+| **Unbounded** | Docker (No Limits) | ~4,335 RPS | 11ms | Shows burst capacity when CPU limits are removed but Network I/O is present. |
+
+**Docker (0.5 vCPU)**
+<img width="1015" height="491" alt="image" src="https://github.com/user-attachments/assets/17076ec8-56ac-4aee-87a0-30612399ad29" />
+**Docker (1.0 vCPU)**
+<img width="1047" height="562" alt="image" src="https://github.com/user-attachments/assets/45e3c2ff-563b-416f-b6fd-e03626018482" />
+
 
 ---
 
 ## 🛠️ Engineering Challenges & Solutions
 
-### 1. The Database Bottleneck
-* **Challenge:** Direct database writes on every API call capped throughput at ~200 RPS due to Disk I/O latency.
-* **Solution:** Implemented an in-memory `ConcurrentLinkedQueue`. The API accepts the request instantly, and a background scheduler aggregates writes into batches of 1,000.
-* **Result:** Throughput increased by **6x** with a persistent DB connection.
+### 1. Shifting the Bottleneck (I/O to CPU)
+* **Challenge:** Direct database writes limited throughput to ~200 RPS (I/O Bound).
+* **Solution:** Implemented an asynchronous `ConcurrentLinkedQueue`.
+* **Result:** Throughput jumped to **4,300+ RPS**. The container now runs at **100% CPU Utilization**, proving that the bottleneck successfully shifted to request processing (JSON parsing) rather than waiting on the DB.
 
-### 2. Resource Contention
-* **Challenge:** Scaling horizontally from 1 to 3 pods on a single machine caused throughput to *drop* rather than increase.
-* **Root Cause:** `docker stats` revealed high CPU Context Switching as the host OS thrashed between containers.
-* **Takeaway:** Horizontal scaling requires physical capacity. Validated that Vertical Scaling (0.5 CPU -> 1.0 CPU) was the correct approach for this hardware profile.
+### 2. Resource Contention ("No Free Lunch")
+* **Challenge:** Scaling horizontally from 1 to 3 pods on a single machine caused throughput to drop.
+* **Root Cause:** `docker stats` revealed high Context Switching as the host OS thrashed between containers.
+* **Takeaway:** Horizontal scaling requires physical capacity. Validated that Vertical Scaling (0.5 CPU -> 1.0 CPU) was the most efficient approach for this hardware profile.
 
 ### 3. Data Safety on Crash
 * **Challenge:** Because data was buffered in RAM, a `SIGTERM` (Pod restart) would cause data loss of queued items.
@@ -77,11 +62,13 @@ graph LR
         }
     }
     ```
-* **Verification:** Verified **100% data integrity** (Row Count: 150,744 / 150,744) even when the container was stopped mid-load-test.
+* **Verification:** Verified **100% data integrity** (Row Count matched Load Test requests) even when the container was stopped mid-load-test.
+  <img width="1021" height="114" alt="image" src="https://github.com/user-attachments/assets/ae499960-c149-4bd0-a996-35e82cf4691d" />
+
 
 ---
 
-## 🚀 Running Locally (Config)
+## 🚀 Run Locally
 
 ### Prerequisites
 * Java 21+
@@ -119,7 +106,7 @@ docker exec -it stock-postgres psql -U user -d stockdb -c "SELECT COUNT(*) FROM 
 
 * **Language:** Java 21
 * **Framework:** Spring Boot 4.0 (Web, JDBC)
-* **Database:** PostgreSQL 15 (Production), H2 (Test)
+* **Database:** PostgreSQL 15
 * **Containerization:** Docker, Docker Compose
 * **Testing:** k6 (Performance), Chaos Engineering
 * **Key Libraries:** `spring-boot-starter-jdbc`, `lombok`
@@ -135,7 +122,7 @@ spring:
     virtual:
       enabled: true
 server:
-  shutdown: graceful
+  shutdown: graceful # Waits for active requests
 ```
 
 **`docker-compose.yml` (Resource Constraints)**
@@ -143,6 +130,6 @@ server:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '1.0' # Simulating Cloud vCPU
           memory: 512M
 ```
