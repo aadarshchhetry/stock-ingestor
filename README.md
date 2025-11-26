@@ -44,9 +44,9 @@ Tis project moves beyond standard CRUD operations to demonstrate **resource effi
 ### 1. Shifting the Bottleneck (I/O to CPU)
 * **Challenge:** Direct database writes limited throughput to ~200 RPS (I/O Bound).
 * **Solution:** Implemented an asynchronous `ConcurrentLinkedQueue`.
-* **Result:** Throughput jumped to **4,300+ RPS**. The container now runs at **100% CPU Utilization**, proving that the bottleneck successfully shifted to request processing (JSON parsing) rather than waiting on the DB.
+* **Result:** Throughput jumped to **1,500+ RPS**. The container now runs at **100% CPU Utilization**, proving that the bottleneck successfully shifted to request processing (JSON parsing) rather than waiting on the DB.
 
-### 2. Resource Contention ("No Free Lunch")
+### 2. Resource Contention
 * **Challenge:** Scaling horizontally from 1 to 3 pods on a single machine caused throughput to drop.
 * **Root Cause:** `docker stats` revealed high Context Switching as the host OS thrashed between containers.
 * **Takeaway:** Horizontal scaling requires physical capacity. Validated that Vertical Scaling (0.5 CPU -> 1.0 CPU) was the most efficient approach for this hardware profile.
