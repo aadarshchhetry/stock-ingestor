@@ -1,3 +1,26 @@
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   application:
     name: stock-ingestor
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:h2:mem:stockdb;DB_CLOSE_DELAY=-1
+    driverClassName: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: false
+
+server:
+  tomcat:
+    threads:
+      max: 200
+  shutdown: graceful
+
+logging:
+  level:
+    root: INFO
