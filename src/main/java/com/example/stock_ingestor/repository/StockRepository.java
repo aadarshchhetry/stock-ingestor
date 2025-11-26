@@ -14,7 +14,7 @@ public class StockRepository {
 
     public StockRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS ticks (symbol VARCHAR(10), price DOUBLE, timestamp BIGINT)");
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS ticks (symbol VARCHAR(10), price DOUBLE PRECISION, timestamp BIGINT)");
     }
 
     public void batchInsert(List<StockTick> ticks) {

@@ -25,7 +25,7 @@ export default function () {
   };
 
   // Send the request
-  const res = http.post('http://localhost:4000/api/v1/ingest', payload, params);
+  const res = http.post('http://localhost:8080/api/v1/ingest', payload, params);
 
   // Check if the server accepted it (Status 202)
   check(res, {
