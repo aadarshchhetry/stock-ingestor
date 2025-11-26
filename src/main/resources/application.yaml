@@ -1,4 +1,6 @@
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   application:
     name: stock-ingestor
   threads:
@@ -17,6 +19,7 @@ server:
   tomcat:
     threads:
       max: 200
+  shutdown: graceful
 
 logging:
   level:

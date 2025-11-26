@@ -2,6 +2,7 @@ package com.example.stock_ingestor.service;
 
 import com.example.stock_ingestor.model.StockTick;
 import com.example.stock_ingestor.repository.StockRepository;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -58,5 +59,19 @@ public class IngestionService {
 
     public Map<String, Double> getRealTimePrices() {
         return priceCache;
+    }
+
+    @PreDestroy
+    public void onShutdown() {
+        log.info("Shutdown signal received! Draining buffer ->");
+
+        int initialSize = buffer.size();
+
+        // Keep flushing until the buffer is completely empty
+        while (!buffer.isEmpty()) {
+            flushBufferToDb();
+        }
+
+        log.info("Shutdown complete. Flushed {} items to Postgres.", initialSize);
     }
 }
